@@ -1,16 +1,16 @@
 // ==UserScript==
-// @name         AFH - Available Dogs QR Word Document
+// @name         AFH - Available Dogs QR PDF Printer
 // @namespace    https://aforeverhome.org/
-// @version      1.1.0
-// @description  Create a printable Word document with one QR-code page per available AFH dog
-// @author       Hunter Mihalick (PocketDr2026)
+// @version      1.2.0
+// @description  Create printable AFH dog and puppy-litter PDF signs with QR codes
+// @author       Hunter Mihalick (PocketDr2026) Leslie Bloxam
 // @homepageURL  https://github.com/PocketDr2026/TamperMonkey-Scripts
 // @supportURL   https://github.com/PocketDr2026/TamperMonkey-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/PocketDr2026/TamperMonkey-Scripts/main/AFH/afh-qr-printer.user.js
 // @downloadURL  https://raw.githubusercontent.com/PocketDr2026/TamperMonkey-Scripts/main/AFH/afh-qr-printer.user.js
 // @match        https://aforeverhome.org/available-dogs*
 // @match        https://www.aforeverhome.org/available-dogs*
-// @require      https://cdn.jsdelivr.net/npm/docx@9.8.1/dist/index.iife.js
+// @require      https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js
 // @require      https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.js
 // @grant        none
 // ==/UserScript==
@@ -19,29 +19,34 @@
     'use strict';
 
     // =========================================================================
-    // AFH CONFIGURATION
+    // CONFIG
     // =========================================================================
 
     const BASE_URL = 'https://aforeverhome.org';
     const GALLERY_URL = `${BASE_URL}/available-dogs/`;
 
-    const SCRIPT_VERSION = '1.1.0';
+    const VERSION = '1.2.0';
 
-    // Maximum number of gallery pages we'll ever check.
-    // This prevents an infinite loop if the AFH site changes.
     const MAX_PAGES = 100;
+    const REQUEST_DELAY = 150;
 
-    // Small pause between requests so we are gentle on the AFH website.
-    const REQUEST_DELAY_MS = 150;
+    // PDF: US Letter landscape
+    // 11in x 8.5in
+    const PAGE_WIDTH = 792;
+    const PAGE_HEIGHT = 612;
+
+    const DARK = [20, 20, 20];
+    const GRAY = [145, 145, 145];
+    const LIGHT_GRAY = [205, 205, 205];
 
     // =========================================================================
-    // CREATE THE AFH BUTTON
+    // BUTTON
     // =========================================================================
 
     const button = document.createElement('button');
 
-    button.id = 'afh-qr-word-button';
-    button.textContent = '🐾 Create QR Word Doc';
+    button.id = 'afh-qr-pdf-button';
+    button.textContent = '🐾 Create AFH Signs PDF';
 
     Object.assign(button.style, {
         position: 'fixed',
@@ -60,345 +65,1423 @@
         boxShadow: '0 4px 14px rgba(0,0,0,0.35)'
     });
 
-    button.addEventListener('mouseenter', () => {
-        if (!button.disabled) {
-            button.style.background = '#244d80';
-        }
-    });
-
-    button.addEventListener('mouseleave', () => {
-        if (!button.disabled) {
-            button.style.background = '#17365d';
-        }
-    });
-
     document.body.appendChild(button);
 
+    button.addEventListener('click', createPdf);
+
     // =========================================================================
-    // BUTTON CLICK
+    // MAIN
     // =========================================================================
 
-    button.addEventListener('click', createWordDocument);
-
-    async function createWordDocument() {
+    async function createPdf() {
         try {
-            setButtonState('Finding available dogs...', true);
+            setButton('Finding available dogs...', true);
 
-            // Make sure our required libraries actually loaded.
-            if (typeof docx === 'undefined') {
+            if (
+                !window.jspdf ||
+                !window.jspdf.jsPDF
+            ) {
                 throw new Error(
-                    'The Word document library did not load. ' +
-                    'Please refresh the page and try again.'
+                    'The PDF library did not load. Refresh the page and try again.'
                 );
             }
 
             if (typeof qrcode === 'undefined') {
                 throw new Error(
-                    'The QR code library did not load. ' +
-                    'Please refresh the page and try again.'
+                    'The QR library did not load. Refresh the page and try again.'
                 );
             }
 
-            // -----------------------------------------------------------------
-            // Find every currently available dog.
-            // -----------------------------------------------------------------
-
-            const dogIds = await collectAllDogIds();
-
-            if (!dogIds.length) {
-                throw new Error(
-                    'No available dogs were found on the AFH website.'
-                );
-            }
-
-            console.log(
-                `[AFH QR] Found ${dogIds.length} available dogs.`
-            );
-
-            // -----------------------------------------------------------------
-            // Read exact name from each dog's profile page.
-            // -----------------------------------------------------------------
-
-            const dogs = [];
-
-            for (let i = 0; i < dogIds.length; i++) {
-                setButtonState(
-                    `Reading dog ${i + 1} of ${dogIds.length}...`,
-                    true
-                );
-
-                const dog = await getDogDetails(dogIds[i]);
-
-                if (dog) {
-                    dogs.push(dog);
-                }
-
-                await sleep(REQUEST_DELAY_MS);
-            }
+            const dogs = await collectAllDogs();
 
             if (!dogs.length) {
                 throw new Error(
-                    'Dog IDs were found, but their profile information ' +
-                    'could not be loaded.'
+                    'No available dogs were found.'
                 );
             }
 
-            // Sort by the exact displayed AFH name.
-            dogs.sort((a, b) =>
-                a.name.localeCompare(b.name, undefined, {
-                    sensitivity: 'base'
-                })
-            );
-
-            // -----------------------------------------------------------------
-            // Build Word document.
-            // -----------------------------------------------------------------
-
-            setButtonState(
-                `Creating Word document for ${dogs.length} dogs...`,
+            setButton(
+                `Organizing ${dogs.length} dogs...`,
                 true
             );
 
-            await createDocx(dogs);
+            const pages = buildPages(dogs);
 
-            setButtonState(
-                `✓ Created ${dogs.length} QR pages!`,
+            setButton(
+                `Creating ${pages.length} PDF pages...`,
+                true
+            );
+
+            await generatePdf(pages);
+
+            setButton(
+                `✓ Created ${pages.length} pages!`,
                 true
             );
 
             setTimeout(() => {
-                setButtonState('🐾 Create QR Word Doc', false);
+                setButton(
+                    '🐾 Create AFH Signs PDF',
+                    false
+                );
             }, 4000);
 
         } catch (error) {
-            console.error('[AFH QR] Error:', error);
+            console.error(
+                '[AFH PDF]',
+                error
+            );
 
             alert(
-                'AFH QR Word Document\n\n' +
-                'There was a problem creating the document.\n\n' +
+                'AFH Sign Generator\n\n' +
+                'There was a problem creating the PDF.\n\n' +
                 (error?.message || error)
             );
 
-            setButtonState('🐾 Create QR Word Doc', false);
+            setButton(
+                '🐾 Create AFH Signs PDF',
+                false
+            );
         }
     }
 
     // =========================================================================
-    // FIND ALL AVAILABLE DOG IDs
+    // COLLECT ALL DOGS
     // =========================================================================
 
-    async function collectAllDogIds() {
-        const seenIds = new Set();
+    async function collectAllDogs() {
+        const dogsById = new Map();
 
-        for (let page = 1; page <= MAX_PAGES; page++) {
-            setButtonState(
-                `Checking available dogs page ${page}...`,
+        for (
+            let page = 1;
+            page <= MAX_PAGES;
+            page++
+        ) {
+            setButton(
+                `Checking dogs page ${page}...`,
                 true
             );
 
-            const url = new URL(GALLERY_URL);
-
-            url.searchParams.set('per_page', '9');
-            url.searchParams.set('sort', 'name');
-            url.searchParams.set('sort_dir', 'asc');
-            url.searchParams.set('page_num', String(page));
-
-            console.log(
-                `[AFH QR] Loading gallery page ${page}: ${url}`
+            const url = new URL(
+                GALLERY_URL
             );
 
-            const response = await fetch(url.toString(), {
-                method: 'GET',
-                credentials: 'same-origin',
-                cache: 'no-store'
-            });
+            url.searchParams.set(
+                'per_page',
+                '9'
+            );
+
+            url.searchParams.set(
+                'sort',
+                'name'
+            );
+
+            url.searchParams.set(
+                'sort_dir',
+                'asc'
+            );
+
+            url.searchParams.set(
+                'page_num',
+                String(page)
+            );
+
+            const response =
+                await fetch(
+                    url.toString(),
+                    {
+                        credentials:
+                            'same-origin',
+                        cache:
+                            'no-store'
+                    }
+                );
 
             if (!response.ok) {
                 throw new Error(
-                    `AFH gallery page ${page} returned HTTP ` +
-                    `${response.status}.`
+                    `Gallery page ${page} returned HTTP ${response.status}.`
                 );
             }
 
-            const html = await response.text();
+            const html =
+                await response.text();
 
-            const parsed = new DOMParser().parseFromString(
-                html,
-                'text/html'
-            );
+            const doc =
+                new DOMParser()
+                    .parseFromString(
+                        html,
+                        'text/html'
+                    );
 
-            const pageIds = extractDogIds(parsed);
+            const pageDogs =
+                extractDogsFromGallery(
+                    doc
+                );
 
-            console.log(
-                `[AFH QR] Page ${page}:`,
-                pageIds
-            );
-
-            // No dogs at all = definitely the end.
-            if (!pageIds.length) {
+            if (!pageDogs.length) {
                 break;
             }
 
-            let newDogsOnThisPage = 0;
+            let newDogs = 0;
 
-            for (const id of pageIds) {
-                if (!seenIds.has(id)) {
-                    seenIds.add(id);
-                    newDogsOnThisPage++;
+            for (
+                const dog of pageDogs
+            ) {
+                if (
+                    !dogsById.has(
+                        dog.id
+                    )
+                ) {
+                    dogsById.set(
+                        dog.id,
+                        dog
+                    );
+
+                    newDogs++;
                 }
             }
 
-            // AFH may redirect an out-of-range page back to the final
-            // page. If every ID was already seen, stop.
-            if (newDogsOnThisPage === 0) {
+            if (newDogs === 0) {
                 break;
             }
 
-            await sleep(REQUEST_DELAY_MS);
+            await sleep(
+                REQUEST_DELAY
+            );
         }
 
-        return Array.from(seenIds);
+        const dogs =
+            Array.from(
+                dogsById.values()
+            );
+
+        dogs.sort(
+            (a, b) =>
+                a.name.localeCompare(
+                    b.name,
+                    undefined,
+                    {
+                        sensitivity:
+                            'base'
+                    }
+                )
+        );
+
+        console.table(dogs);
+
+        return dogs;
     }
 
     // =========================================================================
-    // EXTRACT DOG IDs FROM A GALLERY PAGE
+    // PARSE GALLERY
     // =========================================================================
 
-    function extractDogIds(doc) {
-        const ids = new Set();
+    function extractDogsFromGallery(doc) {
+        const results = [];
 
-        // AFH gallery links currently use URLs such as:
-        //
-        // /afh-single?id=28105
-        //
-        // which redirect to:
-        //
-        // /afh-single-dog/?id=28105
-        //
-        // Match both forms so the script keeps working if either appears.
+        const links =
+            Array.from(
+                doc.querySelectorAll(
+                    'a[href]'
+                )
+            );
 
-        const links = doc.querySelectorAll('a[href]');
+        for (
+            const link of links
+        ) {
+            const href =
+                link.getAttribute(
+                    'href'
+                );
 
-        for (const link of links) {
-            const rawHref = link.getAttribute('href');
-
-            if (!rawHref) {
+            if (!href) {
                 continue;
             }
 
             if (
-                !rawHref.includes('afh-single') &&
-                !rawHref.includes('afh-single-dog')
+                !href.includes(
+                    'afh-single'
+                )
             ) {
                 continue;
             }
 
+            let parsedUrl;
+
             try {
-                const url = new URL(rawHref, BASE_URL);
+                parsedUrl =
+                    new URL(
+                        href,
+                        BASE_URL
+                    );
+            } catch {
+                continue;
+            }
 
-                const id = url.searchParams.get('id');
+            const id =
+                parsedUrl
+                    .searchParams
+                    .get('id');
 
-                if (id && /^\d+$/.test(id)) {
-                    ids.add(id);
-                }
+            if (
+                !id ||
+                !/^\d+$/.test(id)
+            ) {
+                continue;
+            }
 
-            } catch (error) {
-                console.warn(
-                    '[AFH QR] Could not parse dog link:',
-                    rawHref
+            // Walk upward until we find the card/container
+            // containing the listing's descriptive text.
+            const container =
+                findDogCard(link);
+
+            const text =
+                normalizeText(
+                    container
+                        ?.innerText ||
+                    link.parentElement
+                        ?.innerText ||
+                    link.innerText ||
+                    ''
                 );
+
+            const dog =
+                parseDogCard(
+                    id,
+                    text
+                );
+
+            if (dog) {
+                results.push(dog);
             }
         }
 
-        return Array.from(ids);
+        return dedupeById(
+            results
+        );
+    }
+
+    function findDogCard(link) {
+        let current = link;
+
+        for (
+            let i = 0;
+            i < 8 && current;
+            i++
+        ) {
+            const text =
+                normalizeText(
+                    current.innerText ||
+                    ''
+                );
+
+            if (
+                /Born\s+\d{1,2}\/\d{1,2}\/\d{4}/i
+                    .test(text) &&
+                /(Male|Female)/i
+                    .test(text)
+            ) {
+                return current;
+            }
+
+            current =
+                current.parentElement;
+        }
+
+        return link.parentElement;
     }
 
     // =========================================================================
-    // LOAD A DOG'S PROFILE
+    // PARSE DOG CARD
     // =========================================================================
 
-    async function getDogDetails(id) {
+    function parseDogCard(
+        id,
+        text
+    ) {
+        if (!text) {
+            return null;
+        }
+
+        const cleaned =
+            text
+                .replace(
+                    /Click for details/gi,
+                    ''
+                )
+                .replace(
+                    /\s+/g,
+                    ' '
+                )
+                .trim();
+
+        const bornMatch =
+            cleaned.match(
+                /Born\s+(\d{1,2}\/\d{1,2}\/\d{4})/i
+            );
+
+        const sexMatch =
+            cleaned.match(
+                /\b(Male|Female)\b(?:\s*\([^)]+\))?/i
+            );
+
+        if (
+            !bornMatch ||
+            !sexMatch
+        ) {
+            return null;
+        }
+
+        const birthDate =
+            bornMatch[1];
+
+        const sex =
+            capitalize(
+                sexMatch[1]
+            );
+
+        // Everything before the breed/sex/date block
+        // generally begins with the name.
+        //
+        // We get a cleaner parse by locating the
+        // sex text and working backward.
+
+        const sexIndex =
+            cleaned.search(
+                /\b(Male|Female)\b/i
+            );
+
+        const beforeSex =
+            cleaned
+                .slice(
+                    0,
+                    sexIndex
+                )
+                .trim();
+
+        // Use heading text when available.
+        // Gallery cards normally expose the name first.
+
+        const pieces =
+            beforeSex
+                .split(/\s+/);
+
+        let bestName = '';
+        let bestBreed = '';
+
+        // Known breed endings make this easier.
+        const breedWords = [
+            'Mix',
+            'Purebred',
+            'Terrier',
+            'Retriever',
+            'Beagle',
+            'Boxer',
+            'Hound',
+            'Shepherd',
+            'Spaniel',
+            'Bulldog',
+            'Chihuahua',
+            'Feist',
+            'Schnauzer',
+            'Collie'
+        ];
+
+        for (
+            let i = 1;
+            i < pieces.length;
+            i++
+        ) {
+            const candidateBreed =
+                pieces
+                    .slice(i)
+                    .join(' ');
+
+            if (
+                breedWords.some(
+                    word =>
+                        candidateBreed
+                            .includes(word)
+                )
+            ) {
+                bestName =
+                    pieces
+                        .slice(0, i)
+                        .join(' ');
+
+                bestBreed =
+                    candidateBreed;
+
+                break;
+            }
+        }
+
+        if (!bestName) {
+            // Fallback:
+            // first heading-like phrase becomes name.
+            bestName =
+                pieces
+                    .slice(
+                        0,
+                        Math.max(
+                            1,
+                            pieces.length - 2
+                        )
+                    )
+                    .join(' ');
+
+            bestBreed =
+                pieces
+                    .slice(
+                        Math.max(
+                            1,
+                            pieces.length - 2
+                        )
+                    )
+                    .join(' ');
+        }
+
         const profileUrl =
             `${BASE_URL}/afh-single-dog/?id=${encodeURIComponent(id)}`;
 
-        console.log(
-            `[AFH QR] Loading dog ${id}: ${profileUrl}`
-        );
-
-        const response = await fetch(profileUrl, {
-            method: 'GET',
-            credentials: 'same-origin',
-            cache: 'no-store'
-        });
-
-        if (!response.ok) {
-            console.warn(
-                `[AFH QR] Could not load dog ID ${id}.`
-            );
-
-            return {
-                id,
-                name: `AFH Dog ${id}`,
-                url: profileUrl
-            };
-        }
-
-        const html = await response.text();
-
-        const parsed = new DOMParser().parseFromString(
-            html,
-            'text/html'
-        );
-
-        // AFH currently displays the dog's exact name as the H1.
-        const heading = parsed.querySelector('h1');
-
-        let name = heading?.textContent?.trim();
-
-        if (!name) {
-            name = `AFH Dog ${id}`;
-        }
-
-        // Remove repeated whitespace.
-        name = name.replace(/\s+/g, ' ').trim();
-
         return {
             id,
-            name,
-            url: profileUrl
+            name:
+                normalizeText(
+                    bestName
+                ),
+            breed:
+                normalizeText(
+                    bestBreed
+                ),
+            sex,
+            birthDate,
+            profileUrl
         };
     }
 
     // =========================================================================
-    // CREATE QR CODE PNG
+    // BUILD SINGLE-DOG / LITTER PAGES
     // =========================================================================
 
-    function createQrPng(url) {
-        const qr = qrcode(0, 'H');
+    function buildPages(dogs) {
+        const groups =
+            new Map();
+
+        // Candidate litter key:
+        // remove the final word from names.
+        //
+        // Example:
+        // "Adorable Labs Roy"
+        // "Adorable Labs Zorro"
+        //
+        // both become:
+        // "Adorable Labs"
+
+        for (
+            const dog of dogs
+        ) {
+            const words =
+                dog.name
+                    .trim()
+                    .split(/\s+/);
+
+            const prefix =
+                words.length >= 2
+                    ? words
+                        .slice(
+                            0,
+                            -1
+                        )
+                        .join(' ')
+                    : '';
+
+            if (!prefix) {
+                continue;
+            }
+
+            if (
+                !groups.has(prefix)
+            ) {
+                groups.set(
+                    prefix,
+                    []
+                );
+            }
+
+            groups
+                .get(prefix)
+                .push(dog);
+        }
+
+        const used =
+            new Set();
+
+        const pages = [];
+
+        // Only create a litter page
+        // when at least TWO dogs share the prefix.
+
+        for (
+            const [prefix, members]
+            of groups.entries()
+        ) {
+            if (
+                members.length < 2
+            ) {
+                continue;
+            }
+
+            // Avoid grouping dogs unless their
+            // breed and birth date also match.
+            const first =
+                members[0];
+
+            const matching =
+                members.filter(
+                    dog =>
+                        dog.birthDate ===
+                            first.birthDate &&
+                        dog.breed ===
+                            first.breed
+                );
+
+            if (
+                matching.length < 2
+            ) {
+                continue;
+            }
+
+            matching.sort(
+                (a, b) =>
+                    getPuppyName(a, prefix)
+                        .localeCompare(
+                            getPuppyName(
+                                b,
+                                prefix
+                            )
+                        )
+            );
+
+            pages.push({
+                type: 'litter',
+                litterName:
+                    prefix,
+                breed:
+                    first.breed,
+                birthDate:
+                    first.birthDate,
+                dogs:
+                    matching
+            });
+
+            matching.forEach(
+                dog =>
+                    used.add(dog.id)
+            );
+        }
+
+        // Remaining dogs get individual pages.
+        for (
+            const dog of dogs
+        ) {
+            if (
+                used.has(dog.id)
+            ) {
+                continue;
+            }
+
+            pages.push({
+                type: 'single',
+                dog
+            });
+        }
+
+        pages.sort(
+            (a, b) => {
+                const nameA =
+                    a.type === 'litter'
+                        ? a.litterName
+                        : a.dog.name;
+
+                const nameB =
+                    b.type === 'litter'
+                        ? b.litterName
+                        : b.dog.name;
+
+                return nameA
+                    .localeCompare(
+                        nameB
+                    );
+            }
+        );
+
+        return pages;
+    }
+
+    // =========================================================================
+    // PDF
+    // =========================================================================
+
+    async function generatePdf(
+        pages
+    ) {
+        const {
+            jsPDF
+        } = window.jspdf;
+
+        const pdf =
+            new jsPDF({
+                orientation:
+                    'landscape',
+                unit:
+                    'pt',
+                format:
+                    'letter',
+                compress:
+                    true
+            });
+
+        for (
+            let i = 0;
+            i < pages.length;
+            i++
+        ) {
+            if (i > 0) {
+                pdf.addPage(
+                    'letter',
+                    'landscape'
+                );
+            }
+
+            const page =
+                pages[i];
+
+            if (
+                page.type ===
+                'litter'
+            ) {
+                drawLitterPage(
+                    pdf,
+                    page
+                );
+            } else {
+                drawSingleDogPage(
+                    pdf,
+                    page.dog
+                );
+            }
+        }
+
+        const date =
+            getLocalDateString();
+
+        pdf.save(
+            `AFH-Available-Dogs-Signs-${date}.pdf`
+        );
+    }
+
+    // =========================================================================
+    // SINGLE DOG PAGE
+    // =========================================================================
+
+    function drawSingleDogPage(
+        pdf,
+        dog
+    ) {
+        drawBackground(pdf);
+
+        // ------------------------------------------------------------
+        // NAME
+        // ------------------------------------------------------------
+
+        pdf.setTextColor(
+            ...DARK
+        );
+
+        pdf.setFont(
+            'times',
+            'bold'
+        );
+
+        let nameSize = 60;
+
+        if (
+            dog.name.length > 22
+        ) {
+            nameSize = 48;
+        }
+
+        if (
+            dog.name.length > 32
+        ) {
+            nameSize = 40;
+        }
+
+        pdf.setFontSize(
+            nameSize
+        );
+
+        pdf.text(
+            dog.name,
+            PAGE_WIDTH / 2,
+            118,
+            {
+                align:
+                    'center'
+            }
+        );
+
+        // ------------------------------------------------------------
+        // BREED
+        // ------------------------------------------------------------
+
+        pdf.setFont(
+            'helvetica',
+            'normal'
+        );
+
+        pdf.setFontSize(
+            fitFontSize(
+                pdf,
+                dog.breed,
+                32,
+                460,
+                20
+            )
+        );
+
+        pdf.text(
+            dog.breed,
+            PAGE_WIDTH / 2,
+            212,
+            {
+                align:
+                    'center'
+            }
+        );
+
+        // ------------------------------------------------------------
+        // SEX
+        // ------------------------------------------------------------
+
+        pdf.setFontSize(31);
+
+        pdf.text(
+            dog.sex.toLowerCase(),
+            PAGE_WIDTH / 2,
+            264,
+            {
+                align:
+                    'center'
+            }
+        );
+
+        // ------------------------------------------------------------
+        // BIRTH DATE
+        // ------------------------------------------------------------
+
+        pdf.setFontSize(31);
+
+        pdf.text(
+            `born ${formatBirthDate(dog.birthDate)}`,
+            PAGE_WIDTH / 2,
+            321,
+            {
+                align:
+                    'center'
+            }
+        );
+
+        // ------------------------------------------------------------
+        // QR
+        // ------------------------------------------------------------
+
+        const qr =
+            createQrDataUrl(
+                dog.profileUrl
+            );
+
+        pdf.addImage(
+            qr,
+            'PNG',
+            318,
+            360,
+            156,
+            156
+        );
+
+        pdf.setFontSize(14);
+
+        pdf.setTextColor(
+            90,
+            90,
+            90
+        );
+
+        pdf.text(
+            'Scan to learn more',
+            PAGE_WIDTH / 2,
+            535,
+            {
+                align:
+                    'center'
+            }
+        );
+
+        drawAfhFooter(
+            pdf
+        );
+    }
+
+    // =========================================================================
+    // LITTER PAGE
+    // =========================================================================
+
+    function drawLitterPage(
+        pdf,
+        page
+    ) {
+        drawBackground(pdf);
+
+        const dogs =
+            page.dogs;
+
+        // ------------------------------------------------------------
+        // LITTER NAME
+        // ------------------------------------------------------------
+
+        pdf.setTextColor(
+            ...DARK
+        );
+
+        pdf.setFont(
+            'times',
+            'bold'
+        );
+
+        pdf.setFontSize(
+            fitFontSize(
+                pdf,
+                page.litterName,
+                54,
+                540,
+                36
+            )
+        );
+
+        pdf.text(
+            page.litterName,
+            PAGE_WIDTH / 2,
+            86,
+            {
+                align:
+                    'center'
+            }
+        );
+
+        // ------------------------------------------------------------
+        // BREED + BORN
+        // ------------------------------------------------------------
+
+        pdf.setFont(
+            'helvetica',
+            'normal'
+        );
+
+        pdf.setFontSize(
+            fitFontSize(
+                pdf,
+                page.breed,
+                24,
+                520,
+                17
+            )
+        );
+
+        pdf.text(
+            page.breed,
+            PAGE_WIDTH / 2,
+            125,
+            {
+                align:
+                    'center'
+            }
+        );
+
+        pdf.setFontSize(19);
+
+        pdf.text(
+            `born ${formatBirthDate(page.birthDate)}`,
+            PAGE_WIDTH / 2,
+            154,
+            {
+                align:
+                    'center'
+            }
+        );
+
+        // ------------------------------------------------------------
+        // PUPPY GRID
+        // ------------------------------------------------------------
+
+        const count =
+            dogs.length;
+
+        let columns;
+
+        if (count <= 3) {
+            columns = count;
+        } else if (
+            count <= 6
+        ) {
+            columns = 3;
+        } else {
+            columns = 4;
+        }
+
+        const rows =
+            Math.ceil(
+                count /
+                columns
+            );
+
+        const availableWidth =
+            610;
+
+        const startX =
+            (PAGE_WIDTH -
+                availableWidth) /
+            2;
+
+        const cellWidth =
+            availableWidth /
+            columns;
+
+        const gridTop =
+            185;
+
+        const availableHeight =
+            325;
+
+        const rowHeight =
+            availableHeight /
+            rows;
+
+        let qrSize;
+
+        if (rows === 1) {
+            qrSize = 132;
+        } else if (
+            rows === 2
+        ) {
+            qrSize = 100;
+        } else {
+            qrSize = 76;
+        }
+
+        for (
+            let i = 0;
+            i < dogs.length;
+            i++
+        ) {
+            const dog =
+                dogs[i];
+
+            const row =
+                Math.floor(
+                    i /
+                    columns
+                );
+
+            const col =
+                i %
+                columns;
+
+            const centerX =
+                startX +
+                col *
+                    cellWidth +
+                cellWidth /
+                    2;
+
+            const cellTop =
+                gridTop +
+                row *
+                    rowHeight;
+
+            const qrX =
+                centerX -
+                qrSize / 2;
+
+            const qrY =
+                cellTop;
+
+            const qr =
+                createQrDataUrl(
+                    dog.profileUrl
+                );
+
+            pdf.addImage(
+                qr,
+                'PNG',
+                qrX,
+                qrY,
+                qrSize,
+                qrSize
+            );
+
+            const puppyName =
+                getPuppyName(
+                    dog,
+                    page.litterName
+                );
+
+            pdf.setTextColor(
+                ...DARK
+            );
+
+            pdf.setFont(
+                'helvetica',
+                'bold'
+            );
+
+            pdf.setFontSize(
+                fitFontSize(
+                    pdf,
+                    puppyName,
+                    20,
+                    cellWidth - 14,
+                    13
+                )
+            );
+
+            pdf.text(
+                puppyName,
+                centerX,
+                qrY +
+                    qrSize +
+                    24,
+                {
+                    align:
+                        'center'
+                }
+            );
+
+            pdf.setFont(
+                'helvetica',
+                'normal'
+            );
+
+            pdf.setFontSize(
+                11
+            );
+
+            pdf.setTextColor(
+                100,
+                100,
+                100
+            );
+
+            pdf.text(
+                dog.sex,
+                centerX,
+                qrY +
+                    qrSize +
+                    41,
+                {
+                    align:
+                        'center'
+                }
+            );
+        }
+
+        drawAfhFooter(
+            pdf
+        );
+    }
+
+    // =========================================================================
+    // BACKGROUND / PAWS
+    // =========================================================================
+
+    function drawBackground(
+        pdf
+    ) {
+        pdf.setFillColor(
+            255,
+            255,
+            255
+        );
+
+        pdf.rect(
+            0,
+            0,
+            PAGE_WIDTH,
+            PAGE_HEIGHT,
+            'F'
+        );
+
+        // Similar rough positions to Leslie's sample.
+
+        drawPaw(
+            pdf,
+            115,
+            42,
+            0.78,
+            -10
+        );
+
+        drawPaw(
+            pdf,
+            55,
+            135,
+            0.72,
+            -20
+        );
+
+        drawPaw(
+            pdf,
+            130,
+            128,
+            0.72,
+            10
+        );
+
+        drawPaw(
+            pdf,
+            75,
+            235,
+            0.72,
+            -10
+        );
+
+        drawPaw(
+            pdf,
+            735,
+            295,
+            0.72,
+            15
+        );
+
+        drawPaw(
+            pdf,
+            650,
+            395,
+            0.70,
+            15
+        );
+
+        drawPaw(
+            pdf,
+            745,
+            390,
+            0.72,
+            -10
+        );
+
+        drawPaw(
+            pdf,
+            670,
+            500,
+            0.74,
+            10
+        );
+    }
+
+    function drawPaw(
+        pdf,
+        x,
+        y,
+        scale = 1,
+        rotation = 0
+    ) {
+        pdf.saveGraphicsState();
+
+        pdf.setFillColor(
+            ...GRAY
+        );
+
+        // jsPDF doesn't conveniently rotate grouped vector shapes,
+        // so the position pattern provides the decorative variation.
+
+        const s =
+            14 * scale;
+
+        // Main pad
+        pdf.ellipse(
+            x,
+            y + 13 * scale,
+            s,
+            11 * scale,
+            'F'
+        );
+
+        // Toes
+        pdf.ellipse(
+            x - 14 * scale,
+            y - 4 * scale,
+            6 * scale,
+            8 * scale,
+            'F'
+        );
+
+        pdf.ellipse(
+            x - 5 * scale,
+            y - 13 * scale,
+            6 * scale,
+            9 * scale,
+            'F'
+        );
+
+        pdf.ellipse(
+            x + 6 * scale,
+            y - 13 * scale,
+            6 * scale,
+            9 * scale,
+            'F'
+        );
+
+        pdf.ellipse(
+            x + 15 * scale,
+            y - 3 * scale,
+            6 * scale,
+            8 * scale,
+            'F'
+        );
+
+        pdf.restoreGraphicsState();
+    }
+
+    // =========================================================================
+    // AFH FOOTER
+    // =========================================================================
+
+    function drawAfhFooter(
+        pdf
+    ) {
+        // Until Leslie sends the source template/logo,
+        // this uses a clean text recreation rather than embedding
+        // an unofficial or low-resolution logo image.
+
+        pdf.setTextColor(
+            25,
+            25,
+            25
+        );
+
+        // Little orange roof/dog accent.
+        pdf.setDrawColor(
+            240,
+            125,
+            25
+        );
+
+        pdf.setLineWidth(
+            2
+        );
+
+        pdf.line(
+            373,
+            570,
+            396,
+            550
+        );
+
+        pdf.line(
+            396,
+            550,
+            419,
+            570
+        );
+
+        pdf.setFont(
+            'helvetica',
+            'bold'
+        );
+
+        pdf.setFontSize(12);
+
+        pdf.text(
+            'A Forever Home',
+            PAGE_WIDTH / 2,
+            578,
+            {
+                align:
+                    'center'
+            }
+        );
+
+        pdf.setFont(
+            'helvetica',
+            'normal'
+        );
+
+        pdf.setFontSize(6.5);
+
+        pdf.setTextColor(
+            100,
+            100,
+            100
+        );
+
+        pdf.text(
+            'RESCUE FOUNDATION',
+            PAGE_WIDTH / 2,
+            587,
+            {
+                align:
+                    'center'
+            }
+        );
+    }
+
+    // =========================================================================
+    // QR CODE
+    // =========================================================================
+
+    function createQrDataUrl(
+        url
+    ) {
+        const qr =
+            qrcode(
+                0,
+                'H'
+            );
 
         qr.addData(url);
         qr.make();
 
-        const moduleCount = qr.getModuleCount();
+        const modules =
+            qr.getModuleCount();
 
-        // Large modules = crisp printed QR.
-        const moduleSize = 12;
-
-        // Standard QR quiet area.
+        const moduleSize = 8;
         const quietZone = 4;
 
-        const totalModules =
-            moduleCount + (quietZone * 2);
+        const total =
+            modules +
+            quietZone * 2;
 
-        const canvas = document.createElement('canvas');
+        const canvas =
+            document.createElement(
+                'canvas'
+            );
 
-        canvas.width = totalModules * moduleSize;
-        canvas.height = totalModules * moduleSize;
+        canvas.width =
+            total *
+            moduleSize;
 
-        const ctx = canvas.getContext('2d');
+        canvas.height =
+            total *
+            moduleSize;
 
-        // White background.
-        ctx.fillStyle = '#ffffff';
+        const ctx =
+            canvas.getContext(
+                '2d'
+            );
+
+        ctx.fillStyle =
+            '#ffffff';
 
         ctx.fillRect(
             0,
@@ -407,15 +1490,36 @@
             canvas.height
         );
 
-        // QR squares.
-        ctx.fillStyle = '#000000';
+        ctx.fillStyle =
+            '#000000';
 
-        for (let row = 0; row < moduleCount; row++) {
-            for (let col = 0; col < moduleCount; col++) {
-                if (qr.isDark(row, col)) {
+        for (
+            let row = 0;
+            row < modules;
+            row++
+        ) {
+            for (
+                let col = 0;
+                col < modules;
+                col++
+            ) {
+                if (
+                    qr.isDark(
+                        row,
+                        col
+                    )
+                ) {
                     ctx.fillRect(
-                        (col + quietZone) * moduleSize,
-                        (row + quietZone) * moduleSize,
+                        (
+                            col +
+                            quietZone
+                        ) *
+                            moduleSize,
+                        (
+                            row +
+                            quietZone
+                        ) *
+                            moduleSize,
                         moduleSize,
                         moduleSize
                     );
@@ -423,852 +1527,216 @@
             }
         }
 
-        return dataUrlToUint8Array(
-            canvas.toDataURL('image/png')
+        return canvas.toDataURL(
+            'image/png'
         );
-    }
-
-    // =========================================================================
-    // CREATE CARTOON DOG PNG
-    // =========================================================================
-
-    function createCartoonDogPng(
-        mainColor = '#D9A15F',
-        earColor = '#7D4E2D'
-    ) {
-        const canvas = document.createElement('canvas');
-
-        canvas.width = 500;
-        canvas.height = 380;
-
-        const ctx = canvas.getContext('2d');
-
-        ctx.clearRect(
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        );
-
-        // ---------------------------------------------------------------------
-        // Little paw prints
-        // ---------------------------------------------------------------------
-
-        drawPaw(ctx, 55, 65, 0.75, '#D8C6AE', -0.25);
-        drawPaw(ctx, 440, 70, 0.65, '#D8C6AE', 0.25);
-
-        // ---------------------------------------------------------------------
-        // Ears
-        // ---------------------------------------------------------------------
-
-        ctx.fillStyle = earColor;
-
-        ctx.beginPath();
-        ctx.ellipse(
-            135,
-            145,
-            62,
-            100,
-            -0.45,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.ellipse(
-            365,
-            145,
-            62,
-            100,
-            0.45,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        // ---------------------------------------------------------------------
-        // Head
-        // ---------------------------------------------------------------------
-
-        ctx.fillStyle = mainColor;
-
-        ctx.beginPath();
-        ctx.ellipse(
-            250,
-            185,
-            150,
-            135,
-            0,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        // ---------------------------------------------------------------------
-        // Inner ears
-        // ---------------------------------------------------------------------
-
-        ctx.fillStyle = '#EBC8A4';
-
-        ctx.beginPath();
-        ctx.ellipse(
-            137,
-            147,
-            31,
-            58,
-            -0.45,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.ellipse(
-            363,
-            147,
-            31,
-            58,
-            0.45,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        // ---------------------------------------------------------------------
-        // Eyes
-        // ---------------------------------------------------------------------
-
-        ctx.fillStyle = '#2A211C';
-
-        ctx.beginPath();
-        ctx.arc(
-            200,
-            175,
-            13,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(
-            300,
-            175,
-            13,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        // Eye highlights.
-        ctx.fillStyle = '#ffffff';
-
-        ctx.beginPath();
-        ctx.arc(
-            196,
-            171,
-            4,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(
-            296,
-            171,
-            4,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        // ---------------------------------------------------------------------
-        // Muzzle
-        // ---------------------------------------------------------------------
-
-        ctx.fillStyle = '#F6E4CF';
-
-        ctx.beginPath();
-        ctx.ellipse(
-            250,
-            235,
-            70,
-            52,
-            0,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        // ---------------------------------------------------------------------
-        // Nose
-        // ---------------------------------------------------------------------
-
-        ctx.fillStyle = '#2A211C';
-
-        ctx.beginPath();
-
-        ctx.moveTo(250, 208);
-        ctx.bezierCurveTo(
-            228,
-            205,
-            220,
-            217,
-            224,
-            229
-        );
-        ctx.bezierCurveTo(
-            230,
-            244,
-            270,
-            244,
-            276,
-            229
-        );
-        ctx.bezierCurveTo(
-            280,
-            217,
-            272,
-            205,
-            250,
-            208
-        );
-
-        ctx.fill();
-
-        // ---------------------------------------------------------------------
-        // Mouth
-        // ---------------------------------------------------------------------
-
-        ctx.strokeStyle = '#2A211C';
-        ctx.lineWidth = 5;
-        ctx.lineCap = 'round';
-
-        ctx.beginPath();
-        ctx.moveTo(250, 240);
-        ctx.lineTo(250, 253);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(250, 253);
-        ctx.quadraticCurveTo(
-            230,
-            272,
-            210,
-            256
-        );
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(250, 253);
-        ctx.quadraticCurveTo(
-            270,
-            272,
-            290,
-            256
-        );
-        ctx.stroke();
-
-        // ---------------------------------------------------------------------
-        // Tongue
-        // ---------------------------------------------------------------------
-
-        ctx.fillStyle = '#F38A96';
-
-        ctx.beginPath();
-        ctx.ellipse(
-            250,
-            278,
-            22,
-            28,
-            0,
-            0,
-            Math.PI
-        );
-        ctx.fill();
-
-        // ---------------------------------------------------------------------
-        // Cheeks
-        // ---------------------------------------------------------------------
-
-        ctx.fillStyle = 'rgba(247, 148, 148, 0.38)';
-
-        ctx.beginPath();
-        ctx.arc(
-            175,
-            235,
-            22,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(
-            325,
-            235,
-            22,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        // ---------------------------------------------------------------------
-        // Collar
-        // ---------------------------------------------------------------------
-
-        ctx.fillStyle = '#315A84';
-
-        ctx.beginPath();
-
-        ctx.roundRect(
-            180,
-            305,
-            140,
-            28,
-            14
-        );
-
-        ctx.fill();
-
-        // Collar tag.
-        ctx.fillStyle = '#F3C64E';
-
-        ctx.beginPath();
-        ctx.arc(
-            250,
-            337,
-            18,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        return dataUrlToUint8Array(
-            canvas.toDataURL('image/png')
-        );
-    }
-
-    // =========================================================================
-    // DRAW PAW
-    // =========================================================================
-
-    function drawPaw(
-        ctx,
-        x,
-        y,
-        scale,
-        color,
-        rotation = 0
-    ) {
-        ctx.save();
-
-        ctx.translate(x, y);
-        ctx.rotate(rotation);
-        ctx.scale(scale, scale);
-
-        ctx.fillStyle = color;
-
-        // Main paw pad.
-        ctx.beginPath();
-        ctx.ellipse(
-            0,
-            15,
-            24,
-            20,
-            0,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        // Toes.
-        const toes = [
-            [-24, -12],
-            [-8, -24],
-            [10, -24],
-            [26, -10]
-        ];
-
-        for (const [toeX, toeY] of toes) {
-            ctx.beginPath();
-
-            ctx.ellipse(
-                toeX,
-                toeY,
-                10,
-                13,
-                0,
-                0,
-                Math.PI * 2
-            );
-
-            ctx.fill();
-        }
-
-        ctx.restore();
-    }
-
-    // =========================================================================
-    // CONVERT CANVAS DATA URL TO BYTE ARRAY
-    // =========================================================================
-
-    function dataUrlToUint8Array(dataUrl) {
-        const base64 = dataUrl.split(',')[1];
-
-        const binaryString = atob(base64);
-
-        const bytes = new Uint8Array(
-            binaryString.length
-        );
-
-        for (
-            let i = 0;
-            i < binaryString.length;
-            i++
-        ) {
-            bytes[i] =
-                binaryString.charCodeAt(i);
-        }
-
-        return bytes;
-    }
-
-    // =========================================================================
-    // CREATE WORD DOCUMENT
-    // =========================================================================
-
-    async function createDocx(dogs) {
-        const {
-            Document,
-            Paragraph,
-            TextRun,
-            ImageRun,
-            PageBreak,
-            AlignmentType,
-            Packer
-        } = docx;
-
-        const children = [];
-
-        // Different little cartoon dog colors.
-        const dogPalettes = [
-            {
-                main: '#D9A15F',
-                ears: '#7D4E2D'
-            },
-            {
-                main: '#D6D2CC',
-                ears: '#6D625A'
-            },
-            {
-                main: '#E9C38F',
-                ears: '#9A643D'
-            },
-            {
-                main: '#C89262',
-                ears: '#613E29'
-            },
-            {
-                main: '#F0D0AC',
-                ears: '#AE744E'
-            },
-            {
-                main: '#B9A48F',
-                ears: '#645346'
-            }
-        ];
-
-        for (
-            let index = 0;
-            index < dogs.length;
-            index++
-        ) {
-            const dog = dogs[index];
-
-            const palette =
-                dogPalettes[
-                    index % dogPalettes.length
-                ];
-
-            const cartoonDog =
-                createCartoonDogPng(
-                    palette.main,
-                    palette.ears
-                );
-
-            const qrImage =
-                createQrPng(dog.url);
-
-            // -----------------------------------------------------------------
-            // AFH heading
-            // -----------------------------------------------------------------
-
-            children.push(
-                new Paragraph({
-                    alignment:
-                        AlignmentType.CENTER,
-
-                    spacing: {
-                        before: 80,
-                        after: 80
-                    },
-
-                    children: [
-                        new TextRun({
-                            text:
-                                'A FOREVER HOME RESCUE FOUNDATION',
-                            bold: true,
-                            size: 22,
-                            color: '17365D'
-                        })
-                    ]
-                })
-            );
-
-            // -----------------------------------------------------------------
-            // Cartoon dog
-            // -----------------------------------------------------------------
-
-            children.push(
-                new Paragraph({
-                    alignment:
-                        AlignmentType.CENTER,
-
-                    spacing: {
-                        before: 40,
-                        after: 80
-                    },
-
-                    children: [
-                        new ImageRun({
-                            type: 'png',
-                            data: cartoonDog,
-
-                            transformation: {
-                                width: 150,
-                                height: 114
-                            },
-
-                            altText: {
-                                name:
-                                    'Cartoon Dog',
-                                title:
-                                    'Cartoon Dog',
-                                description:
-                                    'Decorative cartoon dog'
-                            }
-                        })
-                    ]
-                })
-            );
-
-            // -----------------------------------------------------------------
-            // DOG / LITTER NAME
-            // -----------------------------------------------------------------
-
-            children.push(
-                new Paragraph({
-                    alignment:
-                        AlignmentType.CENTER,
-
-                    spacing: {
-                        before: 20,
-                        after: 180
-                    },
-
-                    children: [
-                        new TextRun({
-                            text: dog.name,
-                            bold: true,
-                            size: 52,
-                            color: '000000'
-                        })
-                    ]
-                })
-            );
-
-            // -----------------------------------------------------------------
-            // QR CODE
-            // -----------------------------------------------------------------
-
-            children.push(
-                new Paragraph({
-                    alignment:
-                        AlignmentType.CENTER,
-
-                    spacing: {
-                        before: 20,
-                        after: 150
-                    },
-
-                    children: [
-                        new ImageRun({
-                            type: 'png',
-                            data: qrImage,
-
-                            transformation: {
-                                width: 300,
-                                height: 300
-                            },
-
-                            altText: {
-                                name:
-                                    `${dog.name} QR Code`,
-                                title:
-                                    `${dog.name} QR Code`,
-                                description:
-                                    `QR code for ${dog.url}`
-                            }
-                        })
-                    ]
-                })
-            );
-
-            // -----------------------------------------------------------------
-            // SCAN INSTRUCTIONS
-            // -----------------------------------------------------------------
-
-            children.push(
-                new Paragraph({
-                    alignment:
-                        AlignmentType.CENTER,
-
-                    spacing: {
-                        before: 40,
-                        after: 60
-                    },
-
-                    children: [
-                        new TextRun({
-                            text:
-                                'Scan to learn more about me!',
-                            bold: true,
-                            size: 30,
-                            color: '17365D'
-                        })
-                    ]
-                })
-            );
-
-            children.push(
-                new Paragraph({
-                    alignment:
-                        AlignmentType.CENTER,
-
-                    spacing: {
-                        after: 50
-                    },
-
-                    children: [
-                        new TextRun({
-                            text:
-                                'View my photos, description, and adoption information.',
-                            size: 21,
-                            color: '444444'
-                        })
-                    ]
-                })
-            );
-
-            // -----------------------------------------------------------------
-            // AFH URL
-            // -----------------------------------------------------------------
-
-            children.push(
-                new Paragraph({
-                    alignment:
-                        AlignmentType.CENTER,
-
-                    spacing: {
-                        before: 20,
-                        after: 40
-                    },
-
-                    children: [
-                        new TextRun({
-                            text:
-                                'aforeverhome.org',
-                            bold: true,
-                            size: 20,
-                            color: '17365D'
-                        })
-                    ]
-                })
-            );
-
-            // -----------------------------------------------------------------
-            // SMALL DOG ID FOR TROUBLESHOOTING
-            //
-            // Tiny enough that it doesn't distract from the sign,
-            // but useful if we ever need to verify a QR later.
-            // -----------------------------------------------------------------
-
-            children.push(
-                new Paragraph({
-                    alignment:
-                        AlignmentType.CENTER,
-
-                    children: [
-                        new TextRun({
-                            text:
-                                `AFH Dog ID: ${dog.id}`,
-                            size: 14,
-                            color: '999999'
-                        })
-                    ]
-                })
-            );
-
-            // -----------------------------------------------------------------
-            // PAGE BREAK
-            // -----------------------------------------------------------------
-
-            if (index < dogs.length - 1) {
-                children.push(
-                    new Paragraph({
-                        children: [
-                            new PageBreak()
-                        ]
-                    })
-                );
-            }
-        }
-
-        // ---------------------------------------------------------------------
-        // LETTER-SIZE WORD DOCUMENT
-        // ---------------------------------------------------------------------
-
-        const wordDocument =
-            new Document({
-                creator:
-                    'Hunter Mihalick (PocketDr2026)',
-
-                title:
-                    'AFH Available Dogs QR Codes',
-
-                description:
-                    'Printable QR code pages for currently available dogs at A Forever Home Rescue Foundation.',
-
-                sections: [
-                    {
-                        properties: {
-                            page: {
-                                size: {
-                                    // US Letter:
-                                    // 8.5 x 11 inches
-                                    width: 12240,
-                                    height: 15840
-                                },
-
-                                margin: {
-                                    top: 400,
-                                    bottom: 400,
-                                    left: 500,
-                                    right: 500
-                                }
-                            }
-                        },
-
-                        children
-                    }
-                ]
-            });
-
-        const blob =
-            await Packer.toBlob(
-                wordDocument
-            );
-
-        const today =
-            getLocalDateString();
-
-        downloadBlob(
-            blob,
-            `AFH-Available-Dogs-QR-Codes-${today}.docx`
-        );
-    }
-
-    // =========================================================================
-    // DOWNLOAD FILE
-    // =========================================================================
-
-    function downloadBlob(blob, filename) {
-        const objectUrl =
-            URL.createObjectURL(blob);
-
-        const link =
-            document.createElement('a');
-
-        link.href = objectUrl;
-        link.download = filename;
-
-        link.style.display = 'none';
-
-        document.body.appendChild(link);
-
-        link.click();
-
-        link.remove();
-
-        setTimeout(() => {
-            URL.revokeObjectURL(
-                objectUrl
-            );
-        }, 5000);
     }
 
     // =========================================================================
     // HELPERS
     // =========================================================================
 
-    function setButtonState(text, disabled) {
-        button.textContent = text;
-        button.disabled = disabled;
-
-        if (disabled) {
-            button.style.opacity = '0.82';
-            button.style.cursor = 'wait';
-        } else {
-            button.style.opacity = '1';
-            button.style.cursor = 'pointer';
-            button.style.background = '#17365d';
+    function getPuppyName(
+        dog,
+        litterName
+    ) {
+        if (
+            dog.name.startsWith(
+                litterName + ' '
+            )
+        ) {
+            return dog.name
+                .slice(
+                    litterName.length +
+                    1
+                )
+                .trim();
         }
+
+        return dog.name;
     }
 
-    function sleep(ms) {
-        return new Promise(resolve =>
-            setTimeout(resolve, ms)
+    function fitFontSize(
+        pdf,
+        text,
+        preferred,
+        maximumWidth,
+        minimum
+    ) {
+        let size =
+            preferred;
+
+        while (
+            size > minimum
+        ) {
+            pdf.setFontSize(
+                size
+            );
+
+            const width =
+                pdf.getTextWidth(
+                    text
+                );
+
+            if (
+                width <=
+                maximumWidth
+            ) {
+                return size;
+            }
+
+            size--;
+        }
+
+        return minimum;
+    }
+
+    function formatBirthDate(
+        date
+    ) {
+        // Keep the AFH mm/dd/yyyy style,
+        // but remove leading zeroes to match Leslie's example.
+
+        const parts =
+            date.split('/');
+
+        if (
+            parts.length !== 3
+        ) {
+            return date;
+        }
+
+        return (
+            Number(parts[0]) +
+            '/' +
+            Number(parts[1]) +
+            '/' +
+            parts[2]
         );
     }
 
+    function normalizeText(
+        value
+    ) {
+        return String(
+            value || ''
+        )
+            .replace(
+                /\u00a0/g,
+                ' '
+            )
+            .replace(
+                /\s+/g,
+                ' '
+            )
+            .trim();
+    }
+
+    function capitalize(
+        value
+    ) {
+        const text =
+            String(
+                value || ''
+            );
+
+        if (!text) {
+            return '';
+        }
+
+        return (
+            text.charAt(0)
+                .toUpperCase() +
+            text.slice(1)
+                .toLowerCase()
+        );
+    }
+
+    function dedupeById(
+        dogs
+    ) {
+        const map =
+            new Map();
+
+        for (
+            const dog of dogs
+        ) {
+            if (
+                !map.has(
+                    dog.id
+                )
+            ) {
+                map.set(
+                    dog.id,
+                    dog
+                );
+            }
+        }
+
+        return Array.from(
+            map.values()
+        );
+    }
+
+    function sleep(ms) {
+        return new Promise(
+            resolve =>
+                setTimeout(
+                    resolve,
+                    ms
+                )
+        );
+    }
+
+    function setButton(
+        text,
+        disabled
+    ) {
+        button.textContent =
+            text;
+
+        button.disabled =
+            disabled;
+
+        button.style.opacity =
+            disabled
+                ? '0.82'
+                : '1';
+
+        button.style.cursor =
+            disabled
+                ? 'wait'
+                : 'pointer';
+    }
+
     function getLocalDateString() {
-        const now = new Date();
+        const date =
+            new Date();
 
-        const year =
-            now.getFullYear();
-
-        const month =
+        return [
+            date.getFullYear(),
             String(
-                now.getMonth() + 1
-            ).padStart(2, '0');
-
-        const day =
+                date.getMonth() +
+                1
+            ).padStart(
+                2,
+                '0'
+            ),
             String(
-                now.getDate()
-            ).padStart(2, '0');
-
-        return `${year}-${month}-${day}`;
+                date.getDate()
+            ).padStart(
+                2,
+                '0'
+            )
+        ].join('-');
     }
 
     // =========================================================================
-    // STARTUP MESSAGE
+    // STARTUP
     // =========================================================================
 
     console.log(
-        `%cAFH QR Word Generator v${SCRIPT_VERSION} loaded.`,
+        `%cAFH PDF Sign Generator v${VERSION} loaded.`,
         'color:#17365d;font-weight:bold;font-size:14px;'
     );
 
