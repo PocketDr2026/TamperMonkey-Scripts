@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         AFH - Available Dogs Sign PDF Generator
 // @namespace    https://aforeverhome.org/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Create a printable PDF with one AFH dog sign per page, including a QR code to the dog's profile
-// @author       Hunter Mihalick (PocketDr2026) Leslie Bloxam
+// @author       Hunter Mihalick (PocketDr2026), Leslie Bloxam
 // @homepageURL  https://github.com/PocketDr2026/TamperMonkey-Scripts
 // @supportURL   https://github.com/PocketDr2026/TamperMonkey-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/PocketDr2026/TamperMonkey-Scripts/main/AFH/afh-qr-printer.user.js
@@ -14,31 +14,39 @@
 // @require      https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.js
 // @grant        GM_xmlhttpRequest
 // @connect      raw.githubusercontent.com
+// @run-at       document-idle
 // ==/UserScript==
 
 (function () {
     'use strict';
 
     // =========================================================================
-    // CONFIG
+    // CONFIGURATION
     // =========================================================================
 
-    const SCRIPT_VERSION = '1.2.0';
+    const SCRIPT_VERSION = '1.2.1';
 
     const BASE_URL = 'https://aforeverhome.org';
     const GALLERY_URL = `${BASE_URL}/available-dogs/`;
 
-    // This is the PDF currently stored in your GitHub AFH folder.
+    /*
+     * Clean Leslie template stored in GitHub.
+     *
+     * Current GitHub filename:
+     * leslie-template-clean (1).pdf
+     */
     const TEMPLATE_URL =
         'https://raw.githubusercontent.com/' +
         'PocketDr2026/TamperMonkey-Scripts/' +
-        'main/AFH/AFH_Roy_Template_Sample.pdf';
+        'main/AFH/leslie-template-clean%20(1).pdf';
 
     const MAX_PAGES = 100;
+
+    // Small delay so we do not hammer the AFH website.
     const REQUEST_DELAY_MS = 150;
 
     // =========================================================================
-    // BUTTON
+    // CREATE BUTTON
     // =========================================================================
 
     const button = document.createElement('button');
@@ -85,7 +93,10 @@
 
     async function createDogSignPdf() {
         try {
-            setButtonState('Finding available dogs...', true);
+            setButtonState(
+                'Finding available dogs...',
+                true
+            );
 
             if (typeof PDFLib === 'undefined') {
                 throw new Error(
@@ -95,15 +106,16 @@
 
             if (typeof qrcode === 'undefined') {
                 throw new Error(
-                    'The QR library did not load. Refresh the page and try again.'
+                    'The QR code library did not load. Refresh the page and try again.'
                 );
             }
 
             // -----------------------------------------------------------------
-            // Find all dogs.
+            // FIND ALL DOG IDS
             // -----------------------------------------------------------------
 
-            const dogIds = await collectAllDogIds();
+            const dogIds =
+                await collectAllDogIds();
 
             if (!dogIds.length) {
                 throw new Error(
@@ -116,57 +128,75 @@
             );
 
             // -----------------------------------------------------------------
-            // Read each profile.
+            // READ DOG PROFILES
             // -----------------------------------------------------------------
 
             const dogs = [];
 
-            for (let i = 0; i < dogIds.length; i++) {
+            for (
+                let i = 0;
+                i < dogIds.length;
+                i++
+            ) {
                 setButtonState(
                     `Reading dog ${i + 1} of ${dogIds.length}...`,
                     true
                 );
 
                 try {
-                    const dog = await getDogDetails(dogIds[i]);
+                    const dog =
+                        await getDogDetails(
+                            dogIds[i]
+                        );
 
                     if (dog) {
                         dogs.push(dog);
                     }
+
                 } catch (error) {
                     console.error(
-                        `[AFH PDF] Dog ${dogIds[i]} failed:`,
+                        `[AFH PDF] Could not read dog ${dogIds[i]}:`,
                         error
                     );
                 }
 
-                await sleep(REQUEST_DELAY_MS);
+                await sleep(
+                    REQUEST_DELAY_MS
+                );
             }
 
             if (!dogs.length) {
                 throw new Error(
-                    'The dog listings were found, but their details could not be read.'
+                    'Dog listings were found, but their profile information could not be read.'
                 );
             }
 
-            dogs.sort((a, b) =>
-                a.name.localeCompare(
-                    b.name,
-                    undefined,
-                    { sensitivity: 'base' }
-                )
+            // Alphabetical ordering.
+            dogs.sort(
+                (a, b) =>
+                    a.name.localeCompare(
+                        b.name,
+                        undefined,
+                        {
+                            sensitivity: 'base'
+                        }
+                    )
             );
 
             // -----------------------------------------------------------------
-            // Load Leslie's template from GitHub.
+            // DOWNLOAD CLEAN TEMPLATE
             // -----------------------------------------------------------------
 
-            setButtonState('Loading Leslie’s template...', true);
+            setButtonState(
+                'Loading Leslie’s template...',
+                true
+            );
 
-            const templateBytes = await loadTemplatePdf();
+            const templateBytes =
+                await loadTemplatePdf();
 
             // -----------------------------------------------------------------
-            // Build PDF.
+            // BUILD PDF
             // -----------------------------------------------------------------
 
             setButtonState(
@@ -181,10 +211,11 @@
                 );
 
             // -----------------------------------------------------------------
-            // Download.
+            // DOWNLOAD FINISHED PDF
             // -----------------------------------------------------------------
 
-            const today = getLocalDateString();
+            const today =
+                getLocalDateString();
 
             downloadPdf(
                 pdfBytes,
@@ -196,12 +227,15 @@
                 true
             );
 
-            setTimeout(() => {
-                setButtonState(
-                    '🐾 Create Dog Sign PDF',
-                    false
-                );
-            }, 4000);
+            setTimeout(
+                () => {
+                    setButtonState(
+                        '🐾 Create Dog Sign PDF',
+                        false
+                    );
+                },
+                4000
+            );
 
         } catch (error) {
             console.error(
@@ -223,11 +257,12 @@
     }
 
     // =========================================================================
-    // FIND ALL AVAILABLE DOG IDS
+    // FIND ALL AVAILABLE DOGS
     // =========================================================================
 
     async function collectAllDogIds() {
-        const seenIds = new Set();
+        const seenIds =
+            new Set();
 
         for (
             let page = 1;
@@ -240,7 +275,9 @@
             );
 
             const url =
-                new URL(GALLERY_URL);
+                new URL(
+                    GALLERY_URL
+                );
 
             url.searchParams.set(
                 'per_page',
@@ -276,7 +313,7 @@
 
             if (!response.ok) {
                 throw new Error(
-                    `Gallery page ${page} returned HTTP ${response.status}.`
+                    `Available Dogs page ${page} returned HTTP ${response.status}.`
                 );
             }
 
@@ -291,7 +328,9 @@
                     );
 
             const pageIds =
-                extractDogIds(parsed);
+                extractDogIds(
+                    parsed
+                );
 
             console.log(
                 `[AFH PDF] Gallery page ${page}:`,
@@ -304,15 +343,21 @@
 
             let newDogs = 0;
 
-            for (const id of pageIds) {
-                if (!seenIds.has(id)) {
+            for (
+                const id of pageIds
+            ) {
+                if (
+                    !seenIds.has(id)
+                ) {
                     seenIds.add(id);
                     newDogs++;
                 }
             }
 
-            // AFH sometimes repeats the final page if we request
-            // a page beyond the end.
+            /*
+             * AFH can return/repeat the final page when requesting
+             * a page beyond the actual last page.
+             */
             if (newDogs === 0) {
                 break;
             }
@@ -322,31 +367,40 @@
             );
         }
 
-        return Array.from(seenIds);
+        return Array.from(
+            seenIds
+        );
     }
 
     // =========================================================================
-    // EXTRACT DOG IDS
+    // EXTRACT DOG IDS FROM AVAILABLE DOGS PAGE
     // =========================================================================
 
     function extractDogIds(doc) {
-        const ids = new Set();
+        const ids =
+            new Set();
 
         const links =
             doc.querySelectorAll(
                 'a[href]'
             );
 
-        for (const link of links) {
+        for (
+            const link of links
+        ) {
             const rawHref =
-                link.getAttribute('href');
+                link.getAttribute(
+                    'href'
+                );
 
             if (!rawHref) {
                 continue;
             }
 
             if (
-                !rawHref.includes('afh-single')
+                !rawHref.includes(
+                    'afh-single'
+                )
             ) {
                 continue;
             }
@@ -359,8 +413,9 @@
                     );
 
                 const id =
-                    url.searchParams
-                        .get('id');
+                    url.searchParams.get(
+                        'id'
+                    );
 
                 if (
                     id &&
@@ -371,22 +426,28 @@
 
             } catch (error) {
                 console.warn(
-                    '[AFH PDF] Could not parse:',
+                    '[AFH PDF] Could not parse dog link:',
                     rawHref
                 );
             }
         }
 
-        return Array.from(ids);
+        return Array.from(
+            ids
+        );
     }
 
     // =========================================================================
-    // LOAD DOG PROFILE
+    // READ DOG PROFILE
     // =========================================================================
 
     async function getDogDetails(id) {
         const profileUrl =
             `${BASE_URL}/afh-single-dog/?id=${encodeURIComponent(id)}`;
+
+        console.log(
+            `[AFH PDF] Reading dog ${id}: ${profileUrl}`
+        );
 
         const response =
             await fetch(
@@ -424,7 +485,10 @@
             parsed
                 .querySelector('h1')
                 ?.textContent
-                ?.replace(/\s+/g, ' ')
+                ?.replace(
+                    /\s+/g,
+                    ' '
+                )
                 ?.trim();
 
         if (!name) {
@@ -433,16 +497,24 @@
         }
 
         // ---------------------------------------------------------------------
-        // CONVERT PAGE TO CLEAN TEXT LINES
+        // TURN PROFILE INTO CLEAN TEXT LINES
         // ---------------------------------------------------------------------
 
         const textLines =
-            (parsed.body?.innerText || '')
+            (
+                parsed.body
+                    ?.innerText ||
+                ''
+            )
                 .split('\n')
-                .map(line =>
-                    line
-                        .replace(/\s+/g, ' ')
-                        .trim()
+                .map(
+                    line =>
+                        line
+                            .replace(
+                                /\s+/g,
+                                ' '
+                            )
+                            .trim()
                 )
                 .filter(Boolean);
 
@@ -450,19 +522,12 @@
         let dob = '';
         let breed = '';
 
+        let detailsLineIndex =
+            -1;
+
         // ---------------------------------------------------------------------
         // SEX + DOB
-        //
-        // Current AFH format:
-        //
-        // Male (Intact) — Date of Birth: 06/26/2026 (...)
-        //
-        // or
-        //
-        // Female (...) — Date of Birth: ...
         // ---------------------------------------------------------------------
-
-        let detailsLineIndex = -1;
 
         for (
             let i = 0;
@@ -487,7 +552,8 @@
                         match[2]
                     );
 
-                detailsLineIndex = i;
+                detailsLineIndex =
+                    i;
 
                 break;
             }
@@ -495,9 +561,6 @@
 
         // ---------------------------------------------------------------------
         // BREED
-        //
-        // On AFH profiles the breed is the next meaningful line
-        // after the sex / DOB line.
         // ---------------------------------------------------------------------
 
         if (
@@ -507,7 +570,8 @@
                 let i =
                     detailsLineIndex + 1;
 
-                i < textLines.length;
+                i <
+                textLines.length;
 
                 i++
             ) {
@@ -515,30 +579,44 @@
                     textLines[i];
 
                 if (
-                    candidate &&
-                    candidate !== name &&
-                    !candidate.startsWith(
+                    !candidate ||
+                    candidate === name
+                ) {
+                    continue;
+                }
+
+                if (
+                    candidate.startsWith(
                         'Meet '
-                    ) &&
-                    !candidate.startsWith(
+                    )
+                ) {
+                    continue;
+                }
+
+                if (
+                    candidate.startsWith(
                         'Request Info'
                     )
                 ) {
-                    breed =
-                        candidate;
-
-                    break;
+                    continue;
                 }
+
+                breed =
+                    candidate;
+
+                break;
             }
         }
 
         // ---------------------------------------------------------------------
-        // FALLBACKS
+        // FALLBACK SEX
         // ---------------------------------------------------------------------
 
         if (!sex) {
             const fullText =
-                textLines.join('\n');
+                textLines.join(
+                    '\n'
+                );
 
             const sexMatch =
                 fullText.match(
@@ -552,9 +630,15 @@
             }
         }
 
+        // ---------------------------------------------------------------------
+        // FALLBACK DOB
+        // ---------------------------------------------------------------------
+
         if (!dob) {
             const fullText =
-                textLines.join('\n');
+                textLines.join(
+                    '\n'
+                );
 
             const dobMatch =
                 fullText.match(
@@ -569,6 +653,10 @@
             }
         }
 
+        // ---------------------------------------------------------------------
+        // FALLBACK BREED
+        // ---------------------------------------------------------------------
+
         if (!breed) {
             breed =
                 'Breed information unavailable';
@@ -579,9 +667,13 @@
             name,
             breed,
             sex:
-                sex || 'sex unavailable',
+                sex ||
+                'sex unavailable',
+
             dob:
-                dob || 'date unavailable',
+                dob ||
+                'date unavailable',
+
             url:
                 profileUrl
         };
@@ -595,12 +687,15 @@
     }
 
     // =========================================================================
-    // LOAD TEMPLATE FROM GITHUB
+    // DOWNLOAD CLEAN LESLIE TEMPLATE
     // =========================================================================
 
     function loadTemplatePdf() {
         return new Promise(
-            (resolve, reject) => {
+            (
+                resolve,
+                reject
+            ) => {
 
                 GM_xmlhttpRequest({
                     method:
@@ -630,7 +725,7 @@
 
                             reject(
                                 new Error(
-                                    'Could not download the PDF template from GitHub. ' +
+                                    'Could not download Leslie’s PDF template from GitHub. ' +
                                     `HTTP ${response.status}`
                                 )
                             );
@@ -640,13 +735,13 @@
                         error => {
 
                             console.error(
-                                '[AFH PDF] Template download error:',
+                                '[AFH PDF] Template download failed:',
                                 error
                             );
 
                             reject(
                                 new Error(
-                                    'Could not download the PDF template from GitHub.'
+                                    'Could not download Leslie’s PDF template from GitHub.'
                                 )
                             );
                         }
@@ -672,16 +767,21 @@
         const outputPdf =
             await PDFDocument.create();
 
-        // Embed the first page of Leslie's template.
+        // ---------------------------------------------------------------------
+        // LOAD CLEAN BACKGROUND
+        // ---------------------------------------------------------------------
+
         const embeddedPages =
             await outputPdf.embedPdf(
                 templateBytes,
                 [0]
             );
 
-        if (!embeddedPages.length) {
+        if (
+            !embeddedPages.length
+        ) {
             throw new Error(
-                'The template PDF did not contain a usable page.'
+                'Leslie’s template does not contain a usable page.'
             );
         }
 
@@ -694,6 +794,14 @@
         const pageHeight =
             templatePage.height;
 
+        // ---------------------------------------------------------------------
+        // FONTS
+        //
+        // Leslie's original design uses a bold serif-style name and a clean
+        // sans-serif body font. These standard PDF fonts approximate that
+        // style without requiring outside font files.
+        // ---------------------------------------------------------------------
+
         const nameFont =
             await outputPdf.embedFont(
                 StandardFonts.TimesRomanBold
@@ -704,11 +812,23 @@
                 StandardFonts.Helvetica
             );
 
-        const white =
-            rgb(1, 1, 1);
-
         const black =
-            rgb(0, 0, 0);
+            rgb(
+                0,
+                0,
+                0
+            );
+
+        const white =
+            rgb(
+                1,
+                1,
+                1
+            );
+
+        // ---------------------------------------------------------------------
+        // CREATE ONE PAGE PER DOG
+        // ---------------------------------------------------------------------
 
         for (
             let index = 0;
@@ -729,10 +849,7 @@
                     pageHeight
                 ]);
 
-            // -----------------------------------------------------------------
-            // DRAW TEMPLATE BACKGROUND
-            // -----------------------------------------------------------------
-
+            // Leslie's clean background.
             page.drawPage(
                 templatePage,
                 {
@@ -746,67 +863,9 @@
             );
 
             // -----------------------------------------------------------------
-            // COVER THE SAMPLE'S CHANGEABLE CONTENT
+            // DOG / LITTER NAME
             //
-            // This preserves:
-            // - paw prints
-            // - AFH logo
-            //
-            // while removing:
-            // - Roy's name
-            // - Roy's breed
-            // - Roy's sex
-            // - Roy's DOB
-            // - Roy's QR
-            // -----------------------------------------------------------------
-
-            // Name
-            page.drawRectangle({
-                x: 175,
-                y: 477,
-                width: 470,
-                height: 95,
-                color: white
-            });
-
-            // Breed
-            page.drawRectangle({
-                x: 150,
-                y: 365,
-                width: 490,
-                height: 72,
-                color: white
-            });
-
-            // Sex
-            page.drawRectangle({
-                x: 220,
-                y: 310,
-                width: 355,
-                height: 62,
-                color: white
-            });
-
-            // DOB
-            page.drawRectangle({
-                x: 185,
-                y: 247,
-                width: 425,
-                height: 70,
-                color: white
-            });
-
-            // Existing QR
-            page.drawRectangle({
-                x: 306,
-                y: 161,
-                width: 100,
-                height: 98,
-                color: white
-            });
-
-            // -----------------------------------------------------------------
-            // DOG NAME
+            // Original Leslie template position.
             // -----------------------------------------------------------------
 
             drawCenteredFittedText({
@@ -818,16 +877,16 @@
                     nameFont,
 
                 preferredSize:
-                    38,
+                    72,
 
                 minimumSize:
-                    22,
+                    30,
 
                 maxWidth:
-                    440,
+                    520,
 
                 y:
-                    506,
+                    467,
 
                 color:
                     black
@@ -846,16 +905,16 @@
                     bodyFont,
 
                 preferredSize:
-                    31,
+                    36,
 
                 minimumSize:
-                    17,
+                    21,
 
                 maxWidth:
-                    455,
+                    500,
 
                 y:
-                    389,
+                    353,
 
                 color:
                     black
@@ -874,16 +933,16 @@
                     bodyFont,
 
                 preferredSize:
-                    30,
+                    36,
 
                 minimumSize:
-                    20,
+                    24,
 
                 maxWidth:
                     300,
 
                 y:
-                    335,
+                    289,
 
                 color:
                     black
@@ -902,16 +961,16 @@
                     bodyFont,
 
                 preferredSize:
-                    29,
+                    36,
 
                 minimumSize:
-                    19,
+                    22,
 
                 maxWidth:
-                    390,
+                    430,
 
                 y:
-                    270,
+                    216,
 
                 color:
                     black
@@ -919,6 +978,8 @@
 
             // -----------------------------------------------------------------
             // QR CODE
+            //
+            // Placed in the open lower-middle section above the AFH logo.
             // -----------------------------------------------------------------
 
             const qrPngBytes =
@@ -931,21 +992,32 @@
                     qrPngBytes
                 );
 
-            const qrSize = 78;
+            const qrSize =
+                82;
 
-            // White quiet area behind QR.
+            const qrX =
+                (
+                    pageWidth -
+                    qrSize
+                ) / 2;
+
+            const qrY =
+                105;
+
+            // Slightly larger white square behind it maintains the required
+            // QR quiet zone and keeps the code very easy for phones to scan.
             page.drawRectangle({
                 x:
-                    (pageWidth - 92) / 2,
+                    qrX - 7,
 
                 y:
-                    166,
+                    qrY - 7,
 
                 width:
-                    92,
+                    qrSize + 14,
 
                 height:
-                    92,
+                    qrSize + 14,
 
                 color:
                     white
@@ -955,10 +1027,10 @@
                 qrImage,
                 {
                     x:
-                        (pageWidth - qrSize) / 2,
+                        qrX,
 
                     y:
-                        173,
+                        qrY,
 
                     width:
                         qrSize,
@@ -973,7 +1045,7 @@
     }
 
     // =========================================================================
-    // FIT + CENTER TEXT
+    // DRAW CENTERED TEXT THAT SHRINKS WHEN NECESSARY
     // =========================================================================
 
     function drawCenteredFittedText({
@@ -990,11 +1062,13 @@
             preferredSize;
 
         while (
-            fontSize > minimumSize &&
+            fontSize >
+                minimumSize &&
             font.widthOfTextAtSize(
                 text,
                 fontSize
-            ) > maxWidth
+            ) >
+                maxWidth
         ) {
             fontSize -= 1;
         }
@@ -1005,45 +1079,63 @@
                 fontSize
             );
 
+        const x =
+            (
+                page.getWidth() -
+                textWidth
+            ) / 2;
+
         page.drawText(
             text,
             {
-                x:
-                    (page.getWidth() - textWidth) / 2,
-
+                x,
                 y,
-
                 size:
                     fontSize,
-
                 font,
-
                 color
             }
         );
     }
 
     // =========================================================================
-    // QR CODE
+    // CREATE QR CODE
     // =========================================================================
 
-    function createQrPng(url) {
-        // Error correction H = strong print reliability.
+    function createQrPng(
+        url
+    ) {
+        /*
+         * Error correction level H gives us excellent print/scanning
+         * reliability.
+         */
         const qr =
-            qrcode(0, 'H');
+            qrcode(
+                0,
+                'H'
+            );
 
-        qr.addData(url);
+        qr.addData(
+            url
+        );
+
         qr.make();
 
         const moduleCount =
             qr.getModuleCount();
 
-        const moduleSize = 10;
-        const quietZone = 4;
+        const moduleSize =
+            10;
+
+        const quietZone =
+            4;
 
         const totalModules =
             moduleCount +
-            (quietZone * 2);
+            (
+                quietZone *
+                2
+            );
 
         const canvas =
             document.createElement(
@@ -1099,13 +1191,13 @@
                             col +
                             quietZone
                         ) *
-                        moduleSize,
+                            moduleSize,
 
                         (
                             row +
                             quietZone
                         ) *
-                        moduleSize,
+                            moduleSize,
 
                         moduleSize,
                         moduleSize
@@ -1122,17 +1214,21 @@
     }
 
     // =========================================================================
-    // PNG DATA URL -> BYTE ARRAY
+    // DATA URL -> UINT8ARRAY
     // =========================================================================
 
     function dataUrlToUint8Array(
         dataUrl
     ) {
         const base64 =
-            dataUrl.split(',')[1];
+            dataUrl.split(
+                ','
+            )[1];
 
         const binary =
-            atob(base64);
+            atob(
+                base64
+            );
 
         const bytes =
             new Uint8Array(
@@ -1145,32 +1241,43 @@
             i++
         ) {
             bytes[i] =
-                binary.charCodeAt(i);
+                binary.charCodeAt(
+                    i
+                );
         }
 
         return bytes;
     }
 
     // =========================================================================
-    // NORMALIZE DOB
+    // NORMALIZE DATE
     //
-    // Converts:
     // 06/26/2026 -> 6/26/2026
     // =========================================================================
 
-    function normalizeDate(value) {
+    function normalizeDate(
+        value
+    ) {
         const parts =
-            value.split('/');
+            value.split(
+                '/'
+            );
 
-        if (parts.length !== 3) {
+        if (
+            parts.length !== 3
+        ) {
             return value;
         }
 
         const month =
-            Number(parts[0]);
+            Number(
+                parts[0]
+            );
 
         const day =
-            Number(parts[1]);
+            Number(
+                parts[1]
+            );
 
         const year =
             parts[2];
@@ -1207,12 +1314,19 @@
                 'a'
             );
 
-        link.href = url;
-        link.download = filename;
-        link.style.display = 'none';
+        link.href =
+            url;
+
+        link.download =
+            filename;
+
+        link.style.display =
+            'none';
 
         document.body
-            .appendChild(link);
+            .appendChild(
+                link
+            );
 
         link.click();
 
@@ -1229,7 +1343,7 @@
     }
 
     // =========================================================================
-    // HELPERS
+    // BUTTON STATE
     // =========================================================================
 
     function setButtonState(
@@ -1248,6 +1362,7 @@
 
             button.style.cursor =
                 'wait';
+
         } else {
             button.style.opacity =
                 '1';
@@ -1260,12 +1375,18 @@
         }
     }
 
-    function sleep(ms) {
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+
+    function sleep(
+        milliseconds
+    ) {
         return new Promise(
             resolve =>
                 setTimeout(
                     resolve,
-                    ms
+                    milliseconds
                 )
         );
     }
