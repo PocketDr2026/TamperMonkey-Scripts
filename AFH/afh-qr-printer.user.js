@@ -4,6 +4,10 @@
 // @version      1.1.0
 // @description  Create a printable Word document with one QR-code page per available AFH dog
 // @author       Hunter Mihalick (PocketDr2026)
+// @homepageURL  https://github.com/PocketDr2026/TamperMonkey-Scripts
+// @supportURL   https://github.com/PocketDr2026/TamperMonkey-Scripts/issues
+// @updateURL    https://raw.githubusercontent.com/PocketDr2026/TamperMonkey-Scripts/main/AFH/afh-qr-printer.user.js
+// @downloadURL  https://raw.githubusercontent.com/PocketDr2026/TamperMonkey-Scripts/main/AFH/afh-qr-printer.user.js
 // @match        https://aforeverhome.org/available-dogs*
 // @match        https://www.aforeverhome.org/available-dogs*
 // @require      https://cdn.jsdelivr.net/npm/docx@9.8.1/dist/index.iife.js
